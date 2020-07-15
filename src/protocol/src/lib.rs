@@ -133,7 +133,11 @@ impl<RW: AsyncReadExt + AsyncWriteExt + Unpin> Connection<RW> {
     /// Sends response messages to client. Most of the time it is a single
     /// message, select result one of the exceptional situation
     pub async fn send(&mut self, query_result: QueryResult) -> io::Result<()> {
-        let messages: Vec<Message> = query_result.map_or_else(|event| event.into(), |err| err.into());
+        let messages: Vec<Message> = match query_result {
+            Ok(event) => event.into(),
+            Err(error) => error.into(),
+        };
+
         for message in messages {
             log::debug!("{:?}", message);
             self.socket.write_all(message.as_vec().as_slice()).await?;
