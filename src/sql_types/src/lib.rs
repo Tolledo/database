@@ -12,16 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use bigdecimal::BigDecimal;
 use protocol::sql_types::PostgreSqlType;
 use serde::{Deserialize, Serialize};
 use std::convert::TryInto;
+use std::str::FromStr;
 
 #[derive(PartialEq, Eq, Debug, Copy, Clone, Serialize, Deserialize)]
 pub enum SqlType {
     Bool,
     Char(u64),
     VarChar(u64),
-    Decimal,
+    Decimal(u32, u16),
     SmallInt(i16),
     Integer(i32),
     BigInt(i64),
@@ -48,6 +50,7 @@ impl SqlType {
             Self::Integer(min) => Box::new(IntegerSqlTypeConstraint { min }),
             Self::BigInt(min) => Box::new(BigIntTypeConstraint { min }),
             Self::Bool => Box::new(BoolSqlTypeConstraint),
+            Self::Decimal(precision, scale) => Box::new(DecimalTypeConstraint { precision, scale }),
             sql_type => unimplemented!("Type constraint for {:?} is not currently implemented", sql_type),
         }
     }
@@ -60,6 +63,7 @@ impl SqlType {
             Self::Integer(_min) => Box::new(IntegerSqlTypeSerializer),
             Self::BigInt(_min) => Box::new(BigIntTypeSerializer),
             Self::Bool => Box::new(BoolSqlTypeSerializer),
+            Self::Decimal(_precision, _scale) => Box::new(DecimalIntTypeSerializer),
             sql_type => unimplemented!("Type Serializer for {:?} is not currently implemented", sql_type),
         }
     }
@@ -69,7 +73,7 @@ impl SqlType {
             Self::Bool => PostgreSqlType::Bool,
             Self::Char(_) => PostgreSqlType::Char,
             Self::VarChar(_) => PostgreSqlType::VarChar,
-            Self::Decimal => PostgreSqlType::Decimal,
+            Self::Decimal(_, _) => PostgreSqlType::Decimal,
             Self::SmallInt(_) => PostgreSqlType::SmallInt,
             Self::Integer(_) => PostgreSqlType::Integer,
             Self::BigInt(_) => PostgreSqlType::BigInt,
@@ -308,6 +312,43 @@ impl Serializer for BoolSqlTypeSerializer {
     }
 }
 
+struct DecimalTypeConstraint {
+    precision: u32,
+    scale: u16,
+}
+
+impl Constraint for DecimalTypeConstraint {
+    fn validate(&self, in_value: &str) -> Result<(), ConstraintError> {
+        match BigDecimal::from_str(in_value) {
+            Ok(mut value) => {
+                value = value.with_scale(self.scale.into());
+                if self.precision as u64 >= (value.digits() - self.scale as u64) {
+                    Ok(())
+                } else {
+                    Err(ConstraintError::OutOfRange)
+                }
+            }
+            Err(_) => Err(ConstraintError::OutOfRange),
+        }
+    }
+}
+
+struct DecimalIntTypeSerializer;
+
+impl Serializer for DecimalIntTypeSerializer {
+    #[allow(clippy::match_wild_err_arm)]
+    fn ser(&self, in_value: &str) -> Vec<u8> {
+        match lexical::parse::<f64, _>(in_value) {
+            Ok(parsed) => parsed.to_be_bytes().to_vec(),
+            Err(_) => unreachable!(),
+        }
+    }
+
+    fn des(&self, out_value: &[u8]) -> String {
+        i64::from_be_bytes(out_value[0..8].try_into().unwrap()).to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,7 +400,7 @@ mod tests {
 
         #[test]
         fn decimal() {
-            assert_eq!(SqlType::Decimal.to_pg_types(), PostgreSqlType::Decimal);
+            assert_eq!(SqlType::Decimal(100, 0).to_pg_types(), PostgreSqlType::Decimal);
         }
 
         #[test]

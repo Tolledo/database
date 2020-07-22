@@ -9,6 +9,7 @@ publish = false
 lexical = "5.2.0"
 serde = { version = "1.0.114", features = ["derive"] }
 protocol = { path = "../protocol" }
+bigdecimal = "0.1.2"
 
 [dev-dependencies]
 rstest = "0.6.4"

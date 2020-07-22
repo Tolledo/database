@@ -1153,6 +1153,7 @@ dependencies = [
 name = "sql_types"
 version = "0.1.0"
 dependencies = [
+ "bigdecimal",
  "lexical",
  "protocol",
  "rstest",
